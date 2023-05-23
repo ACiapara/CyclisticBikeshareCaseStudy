@@ -1,0 +1,173 @@
+/*
+Create a singular table in the data set, representing 12 months of service.
+*/
+
+CREATE TABLE ride_data AS (
+  SELECT *
+  FROM cyclistic_bikeshare.202202_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202203_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202204_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202205_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202206_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202207_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202208_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202209_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202210_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202211_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202212_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202301_tripdata
+);
+
+SELECT *
+FROM ride_data;
+
+/*
+Query returns 5,754,248 rows.  An earlier attempt to load the data to Excel confirms this number. I will explore each column for cleaning.
+
+C1.ride_id
+-Verify length for ride_id.
+-Verify that all values are unique.
+*/
+
+SELECT 
+  LENGTH(ride_id) AS string_length
+FROM ride_data
+GROUP BY LENGTH(ride_id);
+
+SELECT 
+  COUNT(DISTINCT(ride_id))
+FROM ride_data;
+
+/*
+ride_id verified as only containing strings of 16 characters.  5,754,248 distinct IDs returned, one distinct ID per row.
+
+C2.rideable_type
+-Verify types of bikes present in the table.
+*/
+
+SELECT DISTINCT(rideable_type)
+FROM ride_data;
+
+SELECT COUNT(rideable_type) AS row_count, COUNTIF(rideable_type IS NULL) AS empty_rows
+FROM ride_data;
+
+/*
+3 types of bikes are present, with no empty rows.  The number of rows is equal to the total rows in the table. Casual riders have 3 types of logged bikes, classic, docked, and electric, while members only have two.  The website describes classic bikes as those requiring being docked, so we will correct instances of docked_bike with classic_bike.
+
+C3.started_at & C4.ended_at
+-Verify that the values are all there.
+-Verify there are no values 1 minute or less, or 1 day or more.
+*/
+
+SELECT COUNTIF(started_at IS NOT NULL) AS start_times, COUNTIF(ended_at IS NOT NULL) AS end_times
+FROM ride_data;
+
+SELECT COUNTIF(TIMESTAMP_DIFF(ended_at,started_at,MINUTE) <= 1) AS under_minute, countif(TIMESTAMP_DIFF(ended_at,started_at,DAY) >= 1) AS over_day
+FROM ride_data;
+
+/*
+As these are both timestamps, we will verify them together.  No null values.  There are 229452 rides under a minute and 5390 over an hour.  These rows will be removed from the data set, as it seems likely these are user errors or system errors.
+
+C5.start_station_name & C6.start_station_id & C7.end_station_name & C8.end_station_name
+-Check for leading/trailing/double spaces.
+-Verify naming consistency.
+*/
+
+SELECT DISTINCT(start_station_name)
+FROM ride_data
+GROUP BY start_station_name
+ORDER BY start_station_name;
+
+SELECT DISTINCT(end_station_name)
+FROM ride_data
+GROUP BY end_station_name
+ORDER BY end_station_name;
+
+SELECT start_station_name
+FROM ride_data
+WHERE start_station_name LIKE '%   %';
+
+SELECT COUNT(start_station_id)
+FROM ride_data;
+
+SELECT start_station_id
+FROM ride_data
+WHERE start_station_id LIKE '%  %';
+
+SELECT *
+FROM ride_data
+WHERE start_station_name IS NULL OR end_station_name IS NULL AND
+  rideable_type = 'classic_bike';
+
+/*
+As is common with columns containg strings, the station names contain some unnecessary spaces.  In this case, there are some trailing spaces (180 rows) and some double spaces (17) rows.  These extra spaces will be removed and common cleaning will be performed on all strings to maintain consistency, such as capitalizing the first letter of each word.
+More importantly, there are over 800,000 rides on Classic bikes which have no ending station logged.  As per the FAQ on the website, a classic bike must be docked to finish a ride.  These could be user or system errors which can be over looked so long as we have ending lat and lng data.
+Station IDs will be ignored for the remainder of this analysis, as they are an internal product which does not provide additional data beyond station names.
+
+C9.start_lat & C10.start_lng & C11.end_lat & C12.end_lng
+-Verify no null values exist.
+-Verify values are within reasonable limits.
+*/
+
+SELECT *
+FROM ride_data
+WHERE start_lat IS NULL OR
+  start_lng IS NULL OR
+  end_lat IS NULL OR
+  end_lng IS NULL;
+
+
+SELECT MAX(start_lat) AS max_slt,
+  MIN(start_lat) AS min_slt,
+  MAX(start_lng) AS max_sln,
+  MIN(start_lng) AS min_sln,
+  MAX(end_lat) AS max_elt,
+  MIN(end_lat) AS min_elt,
+  MAX(end_lat) AS max_eln,
+  MIN(end_lat) AS min_eln,
+  FROM ride_data
+WHERE end_lat IS NOT NULL AND
+  end_lng IS NOT NULL;
+
+SELECT end_station_name, end_lat, end_lng
+FROM ride_data
+WHERE end_lat < 41 OR
+  end_lng < -89 OR end_lng > -87;
+
+/*
+5,899 rows contain null values for one of the start or end coordinates.  As we plan on mapping these coordinates, we will have to drop these rows.  Even if a bike does not require docking to end a ride, lacking an ending coordinate suggests a system error.
+8 rows show end lat or lng at 0.0, which are likely system errors. The end station is Green St. & Madison Ave, for which we otherwise have ending lat and lng in other rows, so we will correct these.
+
+C13.member_casual
+-Verify only 2 values are present.
+*/
+
+SELECT DISTINCT(member_casual)
+FROM ride_data
+GROUP BY member_casual;
+
+/*
+Only member and casual are present in this column, and there are no null values.  No further cleaning is necessary.
+*/
