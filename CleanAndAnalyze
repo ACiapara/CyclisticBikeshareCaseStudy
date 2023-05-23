@@ -1,0 +1,239 @@
+/*
+Unify all tables in the data set into one table for cleaning.
+*/
+
+WITH total_data AS (
+  SELECT *
+  FROM cyclistic_bikeshare.202202_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202203_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202204_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202205_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202206_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202207_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202208_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202209_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202210_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202211_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202212_tripdata
+  UNION ALL
+  SELECT *
+  FROM cyclistic_bikeshare.202301_tripdata
+),
+
+/*
+Corrected the ending lat and lng for Green Street and Madison AVE. Replace instances of docked_bike with classic_bike. Remove unwanted columns start_station_id and end_station_id.  Clean text strings for station names by trimming unnecessary spaces and correcting capitalizations. Remove rides missing any coordinate information.
+*/
+
+cleaned_data AS (
+  SELECT *
+  FROM
+    (SELECT ride_id, 
+      CASE
+        WHEN rideable_type = 'docked_bike' THEN 'classic_bike'
+        ELSE rideable_type
+        END AS bike_type, 
+        started_at, ended_at, TRIM(INITCAP(start_station_name)) AS start_station_name_c, TRIM(INITCAP(end_station_name)) AS end_station_name_c, start_lat, start_lng, 
+      CASE
+        WHEN end_lat = 0.0 THEN 41.881827376571351
+        ELSE end_lat 
+        END AS end_lat_c,
+      CASE
+        WHEN end_lng = 0.0 THEN -87.648831903934479
+        ELSE end_lng 
+        END AS end_lng_c, 
+        member_casual
+    FROM total_data
+    )
+  WHERE start_lat IS NOT NULL AND
+    start_lng IS NOT NULL AND
+    end_lat_c IS NOT NULL AND
+    end_lng_c IS NOT NULL
+),
+
+/*
+Creates columns for analysis.  Extracts the day of the week, day of month, month, year, and ride duration from data present in the data set. Drops rides with less than a minute and more than 24 hour ride duration.
+*/
+
+create_columns AS (
+  SELECT*
+  FROM(
+    SELECT ride_id, started_at,
+      CASE
+        WHEN EXTRACT(DAYOFWEEK FROM started_at AT TIME ZONE 'America/Chicago') = 1 THEN 'Sun'
+        WHEN EXTRACT(DAYOFWEEK FROM started_at AT TIME ZONE 'America/Chicago') = 2 THEN 'Mon'
+        WHEN EXTRACT(DAYOFWEEK FROM started_at AT TIME ZONE 'America/Chicago') = 3 THEN 'Tues'
+        WHEN EXTRACT(DAYOFWEEK FROM started_at AT TIME ZONE 'America/Chicago') = 4 THEN 'Wed'
+        WHEN EXTRACT(DAYOFWEEK FROM started_at AT TIME ZONE 'America/Chicago') = 5 THEN 'Thurs'
+        WHEN EXTRACT(DAYOFWEEK FROM started_at AT TIME ZONE 'America/Chicago') = 6 THEN 'Fri'
+        WHEN EXTRACT(DAYOFWEEK FROM started_at AT TIME ZONE 'America/Chicago') = 7 THEN 'Sat'
+      END AS day_of_week,
+      EXTRACT(DAY FROM started_at AT TIME ZONE 'America/Chicago') AS day_of_month,
+      CASE
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 1 THEN 'Jan'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 2 THEN 'Feb'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 3 THEN 'Mar'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 4 THEN 'Apr'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 5 THEN 'May'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 6 THEN 'Jun'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 7 THEN 'Jul'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 8 THEN 'Aug'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 9 THEN 'Sept'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 10 THEN 'Oct'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 11 THEN 'Nov'
+        WHEN EXTRACT(MONTH FROM started_at AT TIME ZONE 'America/Chicago') = 12 THEN 'Dec'
+      END AS month,
+      EXTRACT(YEAR FROM started_at AT TIME ZONE 'America/Chicago') AS year,
+      TIMESTAMP_DIFF(ended_at,started_at,MINUTE) AS duration,
+    FROM total_data
+    )
+  WHERE duration > 1 AND
+    duration < 1440
+),
+
+/*
+Join the cleaned original data with our created columns to create the final data table to analyze.
+*/
+
+ride_data AS (
+  SELECT cd.ride_id, cd.bike_type, cd.started_at, cd.ended_at, cd.start_station_name_c AS start_station_name, cd.end_station_name_c AS end_station_name, cd.start_lat, cd.start_lng, cd.end_lat_c AS end_lat, cd.end_lng_c AS end_lng, cd.member_casual, cc.day_of_week, cc.day_of_month, cc.month, cc.year, cc.duration
+  FROM cleaned_data cd
+  INNER JOIN create_columns cc
+  ON cd.ride_id = cc.ride_id
+)
+
+/*
++++++Data is ready for analysis.+++++
+*/
+
+/*
+Number of rides per type of bike, by member group.
+*/
+
+
+SELECT member_casual, bike_type, COUNT(*) AS number_of_rides
+FROM ride_data
+GROUP BY bike_type, member_casual
+ORDER BY member_casual, bike_type;
+
+
+/*
+Rides per hour.
+*/
+
+
+SELECT member_casual, EXTRACT(HOUR FROM started_at) AS time_of_day, COUNT(*) AS rides
+FROM ride_data
+GROUP BY member_casual, time_of_day
+ORDER BY member_casual, time_of_day;
+
+
+/*
+Rides per day of week.
+*/
+
+
+SELECT member_casual, day_of_week, COUNT(*) AS rides_per_day
+FROM ride_data 
+GROUP BY member_casual, day_of_week
+ORDER BY member_casual, day_of_week;
+
+
+/*
+Rides per day of month.
+*/
+
+
+SELECT member_casual, day_of_month, COUNT(*) AS rides
+FROM ride_data 
+GROUP BY member_casual, day_of_month
+ORDER BY member_casual, day_of_month;
+
+
+/*
+Rides per month.
+*/
+
+
+SELECT member_casual, month, COUNT(*) AS rides_per_month
+FROM ride_data 
+GROUP BY member_casual
+ORDER BY member_casual;
+
+
+/*
+Average duration of ride per day.
+*/
+
+
+SELECT member_casual, day_of_week, AVG(duration) AS avg_duration
+FROM ride_data
+GROUP BY member_casual, day_of_week
+ORDER BY member_casual, day_of_week;
+
+
+/*
+Average duration of ride per month.
+*/
+
+
+SELECT member_casual, month, AVG(duration) AS avg_duration
+FROM ride_data
+GROUP BY member_casual, month
+ORDER BY member_casual, month;
+
+
+/*
+Popular start locations.
+*/
+
+
+SELECT member_casual, start_station_name, COUNT(*) AS starts_at_location
+FROM ride_data
+GROUP BY member_casual, start_station_name
+ORDER BY member_casual, start_station_name;
+
+
+/*
+Popular end locations.
+*/
+
+SELECT member_casual, end_station_name, COUNT(*) AS end_at_location
+FROM ride_data
+GROUP BY member_casual, end_station_name
+ORDER BY member_casual, end_station_name;
+
+/*
+Stations have differing lat and lng data, the following 2 queries will average them into a single lat and lng.
+*/
+
+SELECT DISTINCT(start_station_name), AVG(start_lat) AS lat, AVG(start_lng) AS lng
+FROM ride_data
+WHERE start_station_name IS NOT NULL
+GROUP BY start_station_name
+ORDER BY start_station_name;
+
+SELECT DISTINCT(end_station_name), AVG(end_lat) AS lat, AVG(end_lng) AS lng
+FROM ride_data
+WHERE end_station_name IS NOT NULL
+GROUP BY end_station_name
+ORDER BY end_station_name;
