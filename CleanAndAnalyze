@@ -52,7 +52,8 @@ cleaned_data AS (
         WHEN rideable_type = 'docked_bike' THEN 'classic_bike'
         ELSE rideable_type
         END AS bike_type, 
-        started_at, ended_at, TRIM(INITCAP(start_station_name)) AS start_station_name_c, TRIM(INITCAP(end_station_name)) AS end_station_name_c, start_lat, start_lng, 
+        started_at, ended_at, TRIM(INITCAP(start_station_name)) AS start_station_name_c, 
+        TRIM(INITCAP(end_station_name)) AS end_station_name_c, start_lat, start_lng, 
       CASE
         WHEN end_lat = 0.0 THEN 41.881827376571351
         ELSE end_lat 
